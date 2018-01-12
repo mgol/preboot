@@ -1,3 +1,10 @@
+/**
+ * @license
+ * Copyright Google LLC All Rights Reserved.
+ *
+ * Use of this source code is governed by an MIT-style license that can be
+ * found in the LICENSE file at https://angular.io/license
+ */
 import {
   Inject,
   ModuleWithProviders,
@@ -9,20 +16,31 @@ import {
   ViewEncapsulation,
   InjectionToken,
   APP_BOOTSTRAP_LISTENER,
+  ApplicationRef,
 } from '@angular/core';
-import {EventReplayer} from './api/event.replayer';
 import {DOCUMENT, isPlatformBrowser, isPlatformServer} from '@angular/common';
+import {filter} from 'rxjs/operators/filter';
+import {take} from 'rxjs/operators/take';
+
+import {EventReplayer} from './api/event.replayer';
 import {getInlinePrebootCode} from './api/inline.preboot.code';
 import {PrebootOptions} from './common/preboot.interfaces';
 import {PREBOOT_NONCE} from './common/tokens';
 
+
 export const PREBOOT_OPTIONS = new InjectionToken<PrebootOptions>('PrebootOptions');
 
-export function addScript(doc: Document, rendererFactory: RendererFactory2, recordOpts: PrebootOptions, nonce: string, platformId: Object) {
+export function prebootHook(doc: Document,
+                            rendererFactory: RendererFactory2,
+                            prebootOpts: PrebootOptions,
+                            nonce: string|null,
+                            platformId: Object,
+                            appRef: ApplicationRef,
+                            eventReplayer: EventReplayer) {
   // necessary because of angular/angular/issues/14485
   const res = () => {
     if (isPlatformServer(platformId)) {
-      const inlineCode = getInlinePrebootCode(recordOpts);
+      const inlineCode = getInlinePrebootCode(prebootOpts);
       const renderType: RendererType2 = { id: '-1', encapsulation: ViewEncapsulation.None, styles: [], data: {} };
       const renderer = rendererFactory.createRenderer(doc, renderType);
       const script = renderer.createElement('script');
@@ -32,20 +50,19 @@ export function addScript(doc: Document, rendererFactory: RendererFactory2, reco
       renderer.setValue(script, inlineCode);
       renderer.insertBefore(doc.head, script, doc.head.firstChild);
     }
-  };
-
-  return res;
-
-}
-
-export function replay(eventReplayer: EventReplayer, replayOpts: PrebootOptions, platformId: Object) {
-  // necessary because of angular/angular/issues/14485
-  const res = () => {
-    if (isPlatformBrowser(platformId) && !replayOpts.noReplay) {
-      eventReplayer.replayAll();
+    if (isPlatformBrowser(platformId) && !prebootOpts.noReplay) {
+      appRef.isStable
+        .pipe(
+          filter(stable => stable),
+          take(1)
+        ).subscribe(() => {
+          eventReplayer.replayAll();
+        });
     }
   };
+
   return res;
+
 }
 
 @NgModule()
@@ -58,20 +75,16 @@ export class PrebootModule {
         { provide: PREBOOT_OPTIONS, useValue: opts },
         {
           provide: APP_BOOTSTRAP_LISTENER,
-          useFactory: addScript,
+          useFactory: prebootHook,
           deps: [
             DOCUMENT,
             RendererFactory2,
             PREBOOT_OPTIONS,
             [new Optional(), new Inject(PREBOOT_NONCE)],
-            PLATFORM_ID
+            PLATFORM_ID,
+            ApplicationRef,
+            EventReplayer,
           ],
-          multi: true
-        },
-        {
-          provide: APP_BOOTSTRAP_LISTENER,
-          useFactory: replay,
-          deps: [EventReplayer, PREBOOT_OPTIONS, PLATFORM_ID],
           multi: true
         }
       ]
