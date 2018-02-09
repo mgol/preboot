@@ -150,10 +150,15 @@ export function getAppRoots(_document: Document, opts: PrebootOptions): ServerCl
     if (root.clientSelector !== root.serverSelector) {
       // if diff selectors, then just get the client node
       root.clientNode = _document.querySelector(root.clientSelector) as HTMLElement;
-    } else {
+    } else if (opts.buffer) {
       // if we are doing buffering, we need to create the buffer for the client
-      // else the client root is the same as the server
-      root.clientNode = opts.buffer ? createBuffer(root) : root.serverNode;
+      // or else the client root is the same as the server
+      root.clientNode = createBuffer(root);
+
+      // mark server node as not to be touch by AngularJS - needed for ngUpgrade
+      root.serverNode.setAttribute('ng-non-bindable', '');
+    } else {
+      root.clientNode = root.serverNode;
     }
 
     // if no server node found, log error
