@@ -25,38 +25,32 @@ import {getNodeKeyForPreboot} from '../common/get-node-key';
  */
 export function init(opts: PrebootOptions, win?: PrebootWindow) {
   const theWindow = <PrebootWindow>(win || window);
+  const _document = <Document>(theWindow.document || {});
 
-  // add the preboot options to the preboot data and then add the data to
-  // the window so it can be used later by the client
-  const data = (theWindow.prebootData = <PrebootData>{
+  // Remove the current script from the DOM so that child indexes match
+  // between the client & the server. The script is already running so it
+  // doesn't affect it.
+  if (_document.currentScript && _document.currentScript.parentNode) {
+    _document.currentScript.parentNode.removeChild(_document.currentScript);
+  }
+  // Support: IE 9-11 only
+  // IE doesn't support document.currentScript. We use a specially injected variable
+  // to simualte that. We don't use this code path in other browsers as it requires
+  // searching the DOM so it may be slower than just using document.currentScript.
+  // TODO implement the fallback.
+
+  // Add the preboot options to the preboot data and then add the data to
+  // the window so it can be used later by the client.
+  // Only set new options if they're not already set - we may have multiple app roots
+  // and each of them invokes the init function separately.
+  const data = (theWindow.prebootData = theWindow.prebootData || <PrebootData>{
     opts: opts,
     listening: true,
     apps: [],
     listeners: []
   });
 
-  // start up preboot listening as soon as the DOM is ready
-  waitUntilReady(data);
-}
-
-/**
- * We want to attach event handlers as soon as possible. Unfortunately this
- * means before DOMContentLoaded fires, so we need to look for document.body to
- * exist instead.
- * @param data
- * @param win
- */
-export function waitUntilReady(data: PrebootData, win?: PrebootWindow) {
-  const theWindow = <PrebootWindow>(win || window);
-  const _document = <Document>(theWindow.document || {});
-
-  if (_document.body) {
-    start(data);
-  } else {
-    setTimeout(function() {
-      waitUntilReady(data);
-    }, 10);
-  }
+  start(data);
 }
 
 /**
@@ -105,7 +99,8 @@ export function start(prebootData: PrebootData, win?: PrebootWindow) {
     });
 
     // loop through all the eventSelectors and create event handlers
-    eventSelectors.forEach(eventSelector => handleEvents(prebootData, appData, eventSelector));
+    eventSelectors.forEach(eventSelector =>
+      handleEvents(_document, prebootData, appData, eventSelector));
   });
 }
 
@@ -124,7 +119,7 @@ export function createOverlay(_document: Document): Element | undefined {
     'display:none;position:absolute;left:0;' +
     'top:0;width:100%;height:100%;z-index:999999;background:black;opacity:.3'
   );
-  _document.body.appendChild(overlay);
+  _document.documentElement.appendChild(overlay);
 
   return overlay;
 }
@@ -175,11 +170,13 @@ export function getAppRoots(_document: Document, opts: PrebootOptions): ServerCl
 /**
  * Under given server root, for given selector, record events
  *
+ * @param _document
  * @param prebootData
  * @param appData
  * @param eventSelector
  */
-export function handleEvents(prebootData: PrebootData,
+export function handleEvents(_document: Document,
+                             prebootData: PrebootData,
                              appData: PrebootAppData,
                              eventSelector: EventSelector) {
   const serverRoot = appData.root.serverNode;
@@ -189,48 +186,54 @@ export function handleEvents(prebootData: PrebootData,
     return;
   }
 
-  // get all nodes under the server root that match the given selector
-  const nodes: NodeListOf<Element> = serverRoot.querySelectorAll(eventSelector.selector);
+  // Attach delegated event listeners for each event selector.
+  // We need to use delegated events as only the top level server node
+  // exists at this point.
+  eventSelector.events.forEach((eventName: string) => {
+    // get the appropriate handler and add it as an event listener
+    const handler = createListenHandler(_document, prebootData, eventSelector, appData);
+    // attach the handler in the capture phase so that it fires even if
+    // one of the handlers below calls stopPropagation()
+    serverRoot.addEventListener(eventName, handler, true);
 
-  // don't do anything if no nodes found
-  if (!nodes) {
-    return;
-  }
-
-  // we want to add an event listener for each node and each event
-  for (let i = 0; i < nodes.length; i++) {
-    const node = nodes.item(i);
-    eventSelector.events.forEach((eventName: string) => {
-      // get the appropriate handler and add it as an event listener
-      const handler = createListenHandler(prebootData, eventSelector, appData, node);
-      node.addEventListener(eventName, handler);
-
-      // need to keep track of listeners so we can do node.removeEventListener()
-      // when preboot done
-      if (prebootData.listeners) {
-        prebootData.listeners.push({
-          node: node as HTMLElement,
-          eventName,
-          handler
-        });
-      }
-    });
-  }
+    // need to keep track of listeners so we can do node.removeEventListener()
+    // when preboot done
+    if (prebootData.listeners) {
+      prebootData.listeners.push({
+        node: _document,
+        eventName,
+        handler
+      });
+    }
+  });
 }
 
 /**
  * Create handler for events that we will record
  */
 export function createListenHandler(
+  _document: Document,
   prebootData: PrebootData,
   eventSelector: EventSelector,
-  appData: PrebootAppData,
-  node: Element
+  appData: PrebootAppData
 ): EventListener {
   const CARET_EVENTS = ['keyup', 'keydown', 'focusin', 'mouseup', 'mousedown'];
   const CARET_NODES = ['INPUT', 'TEXTAREA'];
 
+  // Support: IE 9-11 only
+  // IE uses a prefixed `matches` version
+  const matches = _document.documentElement.matches ||
+    _document.documentElement.msMatchesSelector;
+
   return function(event: DomEvent) {
+    const node: Element = event.target;
+
+    // a delegated handlers on document is used so we need to check if
+    // event target matches a desired selector
+    if (!matches.call(node, eventSelector.selector)) {
+      return;
+    }
+
     const root = appData.root;
     const eventName = event.type;
 

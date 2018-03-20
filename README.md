@@ -57,7 +57,8 @@ import { getInlinePrebootCode } from 'preboot';
 const prebootOptions = {};  // see PrebootRecordOptions section below
 const inlineCode = getInlinePrebootCode(prebootOptions);
 
-// now simply insert the inlineCode into the HEAD section of your server view
+// now insert the inlineCode into a `<script>` tag just after
+// the opening tag of `appRoot` in your server view
 
 ```
 
@@ -92,7 +93,7 @@ however where the page continues to change in significant ways. Basically if you
 the page after bootstrap then you will see some jank unless you set `replay` to `false` and then trigger replay
 yourself once you know that all async events are complete.
 
-To manually trigger replay, simply inject the EventReplayer like this:
+To manually trigger replay, inject the EventReplayer like this:
 
 ```
 import { Injectable } from '@angular/core';

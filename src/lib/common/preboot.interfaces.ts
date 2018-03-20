@@ -58,7 +58,7 @@ export interface PrebootAppData {
 // object that is used to keep track of all the preboot
 // listeners (so we can remove the listeners later)
 export interface PrebootEventListener {
-  node: HTMLElement;
+  node: Node;
   eventName: string;
   handler: EventListener;
 }

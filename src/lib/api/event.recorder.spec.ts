@@ -121,11 +121,13 @@ describe('UNIT TEST event.recorder', function() {
       const event = {
         preventDefault: function () {}
       };
-      const node = <Element>{};
+      const _document = <Document>{};
+      _document.documentElement = <HTMLElement>{};
+      _document.documentElement.matches = () => true;
 
       spyOn(event, 'preventDefault');
 
-      const handler = createListenHandler(prebootData, eventSelector, appData, node);
+      const handler = createListenHandler(_document, prebootData, eventSelector, appData);
       handler(event as Event);
       expect(event.preventDefault).not.toHaveBeenCalled();
     });

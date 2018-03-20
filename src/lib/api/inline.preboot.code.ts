@@ -10,7 +10,6 @@ import {getNodeKeyForPreboot} from '../common/get-node-key';
 
 import {
   init,
-  waitUntilReady,
   start,
   createOverlay,
   getAppRoots,
@@ -21,7 +20,6 @@ import {
 } from './event.recorder';
 
 const eventRecorder = {
-  waitUntilReady,
   start,
   createOverlay,
   getAppRoots,
@@ -30,6 +28,8 @@ const eventRecorder = {
   getSelection,
   createBuffer
 };
+
+export const initFunctionName = 'prebootInitFn';
 
 // exporting default options in case developer wants to use these + custom on
 // top
@@ -104,31 +104,76 @@ export function getEventRecorderCode(): string {
   return '\n\n' + eventRecorderFunctions.join('\n\n') + '\n\n';
 }
 
+/**
+ * Used by the server side version of preboot. The main purpose
+ * is to get the inline code that can be inserted into the server view.
+ * Returns the definitions of the prebootInit function called in code returned by
+ * getInlinePrebootCodeInvocation.
+ *
+ * @param customOptions PrebootRecordOptions that override the defaults
+ * @returns Generated inline preboot code with just functions definitions
+ * to be used separately
+ */
+export function getInlinePrebootCodeDefinition(customOptions?: PrebootOptions): string {
+  const opts = <PrebootOptions>assign({}, defaultOptions, customOptions);
+
+  // safety check to make sure options passed in are valid
+  validateOptions(opts);
+
+  const scriptCode = getEventRecorderCode();
+
+  // wrap inline preboot code with a self executing function in order to create scope
+  const initStr = init.toString();
+  return `var ${initFunctionName} = (function() {
+      ${scriptCode}
+      return (${initStr.replace('common_1.', '')});
+    })();`;
+}
+
 
 /**
  * Used by the server side version of preboot. The main purpose
  * is to get the inline code that can be inserted into the server view.
+ * Invokes the prebootInit function defined in getInlinePrebootCodeDefinition with proper
+ * parameters. Each appRoot should get a separate inlined code from a separate call to
+ * getInlinePrebootCodeInvocation but only one inlined code from getInlinePrebootCodeDefinition.
  *
  * @param customOptions PrebootRecordOptions that override the defaults
- * @returns Generated inline preboot code is returned
+ * @returns Generated inline preboot code with just invocations of functions from
+ * getInlinePrebootCodeDefinition
  */
-export function getInlinePrebootCode(customOptions?: PrebootOptions): string {
+export function getInlinePrebootCodeInvocation(customOptions?: PrebootOptions): string {
   const opts = <PrebootOptions>assign({}, defaultOptions, customOptions);
 
   // safety check to make sure options passed in are valid
   validateOptions(opts);
 
   const optsStr = stringifyWithFunctions(opts);
-  const scriptCode = getEventRecorderCode();
 
-  // TODO re-add minification option?
+  return `${initFunctionName}(${optsStr});`;
+}
+
+
+/**
+ * Used by the server side version of preboot. The main purpose
+ * is to get the inline code that can be inserted into the server view.
+ * Returns both definitions of functions needed by Preboot & their invocations.
+ * Works best when there is only one appRoot as it needs to be injected for each
+ * of them separately so with multiple appRoots it generates lots of code.
+ * Preboot's Angular integration no longer uses this function but
+ * getInlinePrebootCodeDefinition and getInlinePrebootCodeInvocation instead.
+ *
+ * @param customOptions PrebootRecordOptions that override the defaults
+ * @returns Generated inline preboot code is returned
+ */
+export function getInlinePrebootCode(customOptions?: PrebootOptions): string {
+  const inlineCodeDefinition = getInlinePrebootCodeDefinition(customOptions);
+  const inlineCodeInvocation = getInlinePrebootCodeInvocation(customOptions);
 
   // wrap inline preboot code with a self executing function in order to create scope
-  const initStr = init.toString();
   return `(function() {
-      ${scriptCode}
-      (${initStr.replace('common_1.', '')}
-      )(${optsStr})
+      ${inlineCodeDefinition}
+      ${inlineCodeInvocation}
     })()`;
 }
 

@@ -190,7 +190,7 @@ export class EventReplayer {
 
     // remove the freeze overlay if it exists
     const doc = this.getWindow().document;
-    const prebootOverlay = doc.body.querySelector('#prebootOverlay') as HTMLElement;
+    const prebootOverlay = doc.getElementById('prebootOverlay');
     if (prebootOverlay) {
       prebootOverlay.remove ?
         prebootOverlay.remove() : prebootOverlay.parentNode !== null ?
